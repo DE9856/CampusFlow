@@ -14,14 +14,11 @@ const supabase = createClient(
 app.use(cors());
 app.use(express.json());
 
-// 🔑 API KEY
+// 🔑 API KEY - Make sure to add your OpenRouter API key
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
   baseURL: "https://openrouter.ai/api/v1"
 });
-
-// 🧠 TEMP USER STORAGE
-let users = {};
 
 // ============================
 // 🧠 AI FUNCTION
@@ -89,30 +86,84 @@ function isValidISOTime(time) {
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
-
 // ============================
 // 📝 REGISTER USER
 // ============================
 app.post("/register", async (req, res) => {
+  const { phone, email } = req.body; // Remove name since it's not in schema
+
+  if (!phone || !email) {
+    return res.status(400).json({ error: "Missing phone or email" });
+  }
+
+  // Check if user already exists
+  const { data: existingUser, error: checkError } = await supabase
+    .from("users")
+    .select("*")
+    .eq("phone", phone)
+    .single();
+
+  if (existingUser) {
+    return res.status(400).json({ error: "User already exists with this phone number" });
+  }
+
+  // Insert new user - only phone and email as per schema
+  const { data, error } = await supabase
+    .from("users")
+    .insert([{ 
+      phone, 
+      email, 
+      created_at: new Date().toISOString() 
+    }]);
+
+  if (error) {
+    return res.status(500).json({ error: error.message });
+  }
+
+  console.log("✅ New user registered:", { phone, email });
+
+  res.json({ 
+    success: true, 
+    message: "User registered successfully",
+    user: { phone, email } // No name field
+  });
+});
+
+// ============================
+// 🔐 LOGIN USER
+// ============================
+app.post("/login", async (req, res) => {
   const { phone, email } = req.body;
 
   if (!phone || !email) {
     return res.status(400).json({ error: "Missing phone or email" });
   }
 
-  const { data, error } = await supabase
+  // Check if user exists
+  const { data: user, error } = await supabase
     .from("users")
-    .upsert([{ phone, email }]); // insert or update
+    .select("*")
+    .eq("phone", phone)
+    .eq("email", email)
+    .single();
 
-  if (error) {
-    return res.status(500).json({ error: error.message });
+  if (error || !user) {
+    return res.status(401).json({ error: "User not found. Please sign up first." });
   }
 
-  console.log("✅ User stored:", data);
+  console.log("✅ User logged in:", user);
 
-  res.json({ success: true });
+  res.json({ 
+    success: true, 
+    message: "Login successful",
+    user: {
+      id: user.id,
+      email: user.email,
+      phone: user.phone
+      // name is not included since it's not in schema
+    }
+  });
 });
-
 // ============================
 // 🚀 MAIN ROUTE
 // ============================
@@ -223,8 +274,6 @@ app.post("/send", async (req, res) => {
 // ============================
 // ▶️ START SERVER
 // ============================
-const PORT = process.env.PORT || 5000;
-
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+app.listen(5000, () => {
+  console.log("🚀 Server running on port 5000");
 });
